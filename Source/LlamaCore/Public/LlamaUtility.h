@@ -2,10 +2,9 @@
 
 #pragma once
 
-#include <string>
-#include <vector>
 #include "CoreMinimal.h"
-
+#include <string> // NECESSARIO per std::string
+#include <vector> // Probabilmente necessario anche questo, visto l'errore precedente
 DECLARE_LOG_CATEGORY_EXTERN(LlamaLog, Log, All);
 
 class FLlamaPaths

@@ -5,7 +5,7 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "LlamaDataTypes.h"
-
+#include "Engine/LatentActionManager.h"
 #include "LlamaComponent.generated.h"
 
 /** 
@@ -13,12 +13,15 @@
 * Inherits lifetime from parent, typically in a system-type actor that means it will unload on level exit. If you wish to have
 * an LLM that survives level transitions, consider using LlamaSubsystem.
 */
+
+
 UCLASS(Category = "LLM", BlueprintType, meta = (BlueprintSpawnableComponent))
 class LLAMACORE_API ULlamaComponent : public UActorComponent
 {
     GENERATED_BODY()
 public:
     ULlamaComponent(const FObjectInitializer &ObjectInitializer);
+    virtual void BeginPlay() override;
     ~ULlamaComponent();
 
     virtual void Activate(bool bReset) override;
@@ -34,7 +37,8 @@ public:
     //Only called when full response has been received (EOS/etc). Usually bandwidth bound operation, TPS given for TGS.
     UPROPERTY(BlueprintAssignable)
     FOnResponseGeneratedSignature OnResponseGenerated;
-
+    UPROPERTY(BlueprintAssignable)
+	FOnResponseGeneratedSignatureWithStatus OnResponseGeneratedWithStatus;
     //Response split by punctuation emit e.g. sentence level emits. Useful for speech generation type tasks.
     UPROPERTY(BlueprintAssignable)
     FOnPartialSignature OnPartialGenerated;
@@ -77,6 +81,14 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Component")
     bool bSyncPromptHistory = true;
 
+    //add by marco change pooling mode 
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Component")
+    int PoolingMode = 0;
+
+    //add by marco change polling type  
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "LLM Model Component")
+    int PoolingType = 0;
+
     //loads model from ModelParams. If bForceReload it will force the model to reload even if already loaded.
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
     void LoadModel(bool bForceReload = true);
@@ -86,7 +98,6 @@ public:
 
     UFUNCTION(BlueprintPure, Category = "LLM Model Component")
     bool IsModelLoaded();
-
 
     //Clears the prompt, allowing a new context - optionally keeping the initial system prompt
     UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
@@ -141,6 +152,42 @@ public:
     UFUNCTION(BlueprintCallable, Category = "LLM Model Embedding Mode")
     void GeneratePromptEmbeddingsForText(const FString& Text);
 
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Embedding Mode")
+    void ConvertJson(const FString& Input, const FString& Output);
+
+    //This function requires embedding mode or it will not run ADD by Marco
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Embedding Mode")
+    FString RetriveFromEmbedding(const FString& Text);
+
+    UPROPERTY(BlueprintAssignable, Category = "LLM Model Embedding Mode")
+	FOnSearchResultsReady OnSearchResultsReady; 
+    UPROPERTY(BlueprintAssignable, Category = "LLM Model Embedding Mode")
+	FOnSearchResultComplete OnSearchResultComplete;
+    // La funzione che avvia la ricerca asincrona
+    //     //this functon augment the text retrive from json, with N chuncks from json, default nchunsk=1 add by Marco 
+// Nel tuo ULlamaComponent
+    UFUNCTION(BlueprintCallable, Category = "Llama", meta = (Latent, LatentInfo = "LatentInfo"))
+    void RetriveFromJsonAsync(FLatentActionInfo LatentInfo, const FString& Json, int NChuncksOut, const FString& Input, FString& Output);
+   // static ULlamaComponent* RetriveFromJsonAsync(UObject* WorldContext, const FString& Text, const FString& Json, int NChuncksOut);
+    //this functon augment the text retrive from json, with N chuncks from json, default nchunsk=1 add by Marco 
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Embedding Mode")
+    FString RetriveFromJson(const FString& Text, const FString& Json, int NChuncksOut);
+    
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Component")
+    bool CheckContext();
+
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Embedding Mode")
+    void BuildAndSaveIndexFromChunks(const TArray<FString>& TextChunks, const FString& IndexSavePath, const FString& MapSavePath);
+    UFUNCTION(BlueprintCallable, Category = "LLM Model Embedding Mode")
+    FString FindNearestString(FString Query);
+
+    //UFUNCTION(BlueprintCallable, Category = "LLM Model Embedding Mode", meta = (BlueprintInternalUseOnly = "true", WorldContext = "WorldContextObject"))
+  //  static ULlamaComponent* RetrieveJsonAsync(const UObject* WorldContextObject, const FString& Text, const FString& Json, int NChuncksOut);
+
 private:
     class FLlamaNative* LlamaNative;
+
+	UObject* WorldContext = nullptr;
+	UWorld* World = nullptr;
+	FTimerHandle TimerHandle;
 };

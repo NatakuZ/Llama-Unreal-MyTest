@@ -1,8 +1,47 @@
 // Copyright 2025-current Getnamo.
 
-#include "LlamaComponent.h"
+#include "LlamaComponent.h"  
 #include "LlamaUtility.h"
 #include "LlamaNative.h"
+#include "Engine.h"  //engine
+#include "Engine/World.h"  //engine
+#include "Editor/EditorEngine.h" //unreal Ed 
+
+
+// Definisci la classe qui
+class FLlamaLatentAction : public FPendingLatentAction
+{
+public:
+    FName ExecutionFunction;
+    int32 OutputLink;
+    FWeakObjectPtr CallbackTarget;
+    FString* OutputResult;
+    bool bCompleted = false;
+	bool bSuccess = false;
+    FLlamaLatentAction(const FLatentActionInfo& LatentInfo, FString& Output)
+        : ExecutionFunction(LatentInfo.ExecutionFunction)
+        , OutputLink(LatentInfo.Linkage)
+        , CallbackTarget(LatentInfo.CallbackTarget)
+        , OutputResult(&Output)
+    {
+    }
+
+    virtual void UpdateOperation(FLatentResponse& Response) override
+    {
+        if (bCompleted)
+        {
+            Response.FinishAndTriggerIf(true, ExecutionFunction, OutputLink, CallbackTarget);
+        }
+    }
+
+    void Complete(const FString& Result,bool Success)
+    {
+        if (OutputResult) *OutputResult = Result;
+        bCompleted = true;
+		bSuccess = Success;
+
+    }
+};
 
 ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
     : UActorComponent(ObjectInitializer)
@@ -26,6 +65,13 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
         OnEndOfStream.Broadcast(true, ModelState.LastTokenGenerationSpeed);
     };
 
+	LlamaNative->OnResponseGeneratedWithStatus = [this](const FString& Response, ELLMResponseStatus Status)
+	{
+			//Emit response generated to general listeners
+			OnResponseGeneratedWithStatus.Broadcast(Response, Status);
+			OnEndOfStream.Broadcast(true, ModelState.LastTokenGenerationSpeed);
+	};
+
     LlamaNative->OnPartialGenerated = [this](const FString& Partial)
     {
         OnPartialGenerated.Broadcast(Partial);
@@ -47,7 +93,16 @@ ULlamaComponent::ULlamaComponent(const FObjectInitializer &ObjectInitializer)
     ModelParams.Advanced.PartialsSeparators.Add(TEXT("?"));
     ModelParams.Advanced.PartialsSeparators.Add(TEXT("!"));
 }
+void ULlamaComponent::BeginPlay() 
+{   
+Super::BeginPlay();
+//Initialize the native component
+UE_LOG(LogTemp, Warning, TEXT("ULlamaComponent: BeginPlay, Owner=%s, World=%s"),
+    GetOwner() ? *GetOwner()->GetName() : TEXT("NULL"),
+    GetWorld() ? *GetWorld()->GetName() : TEXT("NULL"));
 
+
+}
 ULlamaComponent::~ULlamaComponent()
 {
 	if (LlamaNative)
@@ -118,7 +173,9 @@ void ULlamaComponent::InsertRawPrompt(const FString& Text, bool bGenerateReply)
 
 void ULlamaComponent::LoadModel(bool bForceReload)
 {
+
     LlamaNative->SetModelParams(ModelParams);
+    LlamaNative->SetPooling(PoolingMode,PoolingType);
     LlamaNative->LoadModel(bForceReload, [this](const FString& ModelPath, int32 StatusCode)
     {
         //We errored, the emit will happen before we reach here so just exit
@@ -241,3 +298,99 @@ void ULlamaComponent::GeneratePromptEmbeddingsForText(const FString& Text)
         OnEmbeddings.Broadcast(Embeddings, SourceText);
     });
 }
+
+void ULlamaComponent::ConvertJson(const FString& Input, const FString& Output)
+{
+    LlamaNative->ConvertJson(Input,Output);
+}
+
+
+
+FString ULlamaComponent::RetriveFromEmbedding(const FString& Text)
+{
+    FString AugmentedText;
+    AugmentedText = LlamaNative->RetriveFromEmbedding(Text);
+    return AugmentedText+Text;
+}
+
+
+//ULlamaComponent* ULlamaComponent::RetriveFromJsonAsync(UObject* WorldContext, const FString& Text, const FString& Json, int NChuncksOut)
+//{
+//    ULlamaComponent* BlueprintNode = NewObject<ULlamaComponent>();
+//    BlueprintNode->WorldContext = WorldContext;
+//	BlueprintNode->World = WorldContext->GetWorld();
+//    return BlueprintNode;
+//}
+
+void ULlamaComponent::RetriveFromJsonAsync(FLatentActionInfo LatentInfo, const FString& Json, int NChuncksOut, const FString& Input, FString& Output)
+{
+	// Log the owner and component state
+        AActor* Owner = GetOwner();
+    UE_LOG(LogTemp, Warning, TEXT("ULlamaComponent: Owner=%s, IsRegistered=%d, IsActive=%d"),
+        Owner ? *Owner->GetName() : TEXT("NULL"),
+        IsRegistered(),
+        IsActive());
+    // Ottieni il world context
+       World = GetWorld();
+
+#if WITH_EDITOR
+        if (!World && GEditor)
+        {
+            World = GEditor->GetEditorWorldContext().World();
+        }
+#endif
+
+        if (!World)
+        {
+            UE_LOG(LlamaLog, Error, TEXT("RetriveFromJsonAsync: World context is null, cannot execute latent action."));
+            FLlamaLatentAction* NewAction = new FLlamaLatentAction(LatentInfo, Output);
+            NewAction->Complete(TEXT("Error: World context is null."), false);
+            return;
+        }
+
+        FLatentActionManager& LatentManager = World->GetLatentActionManager();
+
+        if (LatentManager.FindExistingAction<FLlamaLatentAction>(LatentInfo.CallbackTarget, LatentInfo.UUID) == nullptr)
+        {
+            FLlamaLatentAction* NewAction = new FLlamaLatentAction(LatentInfo, Output);
+
+            AsyncTask(ENamedThreads::AnyBackgroundThreadNormalTask, [this, Json, NChuncksOut, Input, NewAction]()
+                {
+                    FString Result = RetriveFromJson(Input, Json, NChuncksOut);
+                    FString TotalText = "<document>" + Result + "</document>\n" + "<q>" + Input + "</q>";
+                    AsyncTask(ENamedThreads::GameThread, [NewAction, TotalText]()
+                        {
+                            NewAction->Complete(TotalText, true);
+                        });
+                });
+
+            LatentManager.AddNewAction(LatentInfo.CallbackTarget, LatentInfo.UUID, NewAction);
+        }
+    
+
+}
+
+FString ULlamaComponent::RetriveFromJson(const FString& Text, const FString& Json, int NChuncksOut)
+{
+	
+    FString AugmentedText;
+    AugmentedText = LlamaNative->RetriveFromJson(Text,Json,NChuncksOut);
+    FString TotalText="<document>"+AugmentedText+"</document>\n"+"<q>"+Text+"</q>";
+    return TotalText;
+}
+
+bool ULlamaComponent::CheckContext()
+{
+    return LlamaNative->CheckContext();
+}
+
+void ULlamaComponent::BuildAndSaveIndexFromChunks(const TArray<FString>& TextChunks, const FString& IndexSavePath, const FString& MapSavePath)
+{
+    LlamaNative->BuildAndSaveIndexFromChunks(TextChunks, IndexSavePath, MapSavePath);
+}
+
+FString ULlamaComponent::FindNearestString(FString Query)
+{
+    return LlamaNative->FindNearestString(Query);
+}
+

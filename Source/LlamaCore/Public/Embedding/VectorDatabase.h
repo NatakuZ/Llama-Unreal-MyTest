@@ -1,7 +1,8 @@
 // Copyright 2025-current Getnamo.
 
 #pragma once
-
+#include <string>
+#include <vector> // Probabilmente necessario anche questo, visto l'errore precedente
 #include "VectorDatabase.generated.h"
 
 USTRUCT(BlueprintType)
@@ -55,15 +56,16 @@ public:
     void AddVectorEmbeddingStringPair(const TArray<float>& Embedding, const FString& Text);
 
     //Lookup single top entry
-    int64 FindNearestId(const TArray<float>& ForEmbedding);
-    FString FindNearestString(const TArray<float>& ForEmbedding);
+    int64 FindNearestId(const TArray<float>& ForEmbedding, std::vector<float>& EmbArray);
+    FString FindNearestString(const TArray<float>& ForEmbedding, std::vector<float>& EmbArray);
 
     //Lookup group entries
-    void FindNearestNIds(TArray<int64>& IdResults, const TArray<float>& ForEmbedding, int32 N = 1);
-    void FindNearestNStrings(TArray<FString>& StringResults, const TArray<float>& ForEmbedding, int32 N = 1);
+    void FindNearestNIds(TArray<int64>& IdResults, const TArray<float>& ForEmbedding, std::vector<float>& EmbArray, int32 N = 1);
+    void FindNearestNStrings(TArray<FString>& StringResults, const TArray<float>& ForEmbedding, std::vector<float>& EmbArray, int32 N = 1);
 
     //todo: add version that returns n nearest
-
+    bool SaveIndex(const FString& IndexFilePath, const FString& MapFilePath);
+    bool LoadIndex(const FString& IndexSavePath, const FString& MapSavePath);
     FVectorDatabase();
     ~FVectorDatabase();
 
@@ -72,5 +74,6 @@ private:
 
     //Stores the embedded text database. Use UniqueDBId (aka primary key) to lookup the text snippet
     TMap<int64, FString> TextDatabase;
+	TArray<FString> TextDatabaseArray; // For iteration purposes
     int64 TextDatabaseMaxId = 0;
 };

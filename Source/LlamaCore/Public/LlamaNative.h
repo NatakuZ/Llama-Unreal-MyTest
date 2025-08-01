@@ -17,7 +17,8 @@ public:
 	//Callbacks
 	TFunction<void(const FString& Token)> OnTokenGenerated;
 	TFunction<void(const FString& Partial)> OnPartialGenerated;		//usually considered sentences, good for TTS.
-	TFunction<void(const FString& Response)> OnResponseGenerated;	//per round
+	TFunction<void(const FString& Response)> OnResponseGenerated;	//per 
+	TFunction<void(const FString& Response, ELLMResponseStatus Status)> OnResponseGeneratedWithStatus;	//per round
 	TFunction<void(int32 TokensProcessed, EChatTemplateRole ForRole, float Speed)> OnPromptProcessed;	//when an inserted prompt has finished processing (non-generation prompt)
 	TFunction<void()> OnGenerationStarted;
 	TFunction<void(const FLlamaRunTimings& Timings)> OnGenerationFinished;
@@ -75,7 +76,15 @@ public:
 	~FLlamaNative();
 
 	float ThreadIdleSleepDuration = 0.005f;        //default sleep timer for BG thread in sec.
-
+	//polling mode add by Marco
+	void SetPooling(int NewPoolingMode,int NewPollingType);
+	//Add By Marco
+	FString RetriveFromEmbedding(const FString& Text);
+	void ConvertJson(const FString& Input, const FString& Output);
+	FString RetriveFromJson(const FString& Text, const FString& Json, int NChuncksOut);
+	void BuildAndSaveIndexFromChunks(const TArray<FString>& TextChunks, const FString& IndexSavePath, const FString& MapSavePath);
+	FString FindNearestString(FString Query);
+	bool CheckContext();
 protected:
 
 	//can be safely called on game thread or the bg thread
@@ -109,7 +118,7 @@ protected:
 
 	void EnqueueBGTask(TFunction<void(int64)> Task);
 	void EnqueueGTTask(TFunction<void()> Task, int64 LinkedTaskId = -1);
-
+	
 	class FLlamaInternal* Internal = nullptr;
 	FTSTicker::FDelegateHandle TickDelegateHandle = nullptr; //optional tick handle - used in subsystem example where tick isn't natively supported
 };

@@ -27,7 +27,7 @@ public:
     //Only called when full response has been received (EOS/etc)
     UPROPERTY(BlueprintAssignable)
     FOnResponseGeneratedSignature OnResponseGenerated;
-
+    FOnResponseGeneratedSignatureWithStatus OnResponseGeneratedWithStatus;
     //Utility split emit e.g. sentence level emits, useful for speech generation
     UPROPERTY(BlueprintAssignable)
     FOnPartialSignature OnPartialGenerated;

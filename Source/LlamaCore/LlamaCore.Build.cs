@@ -61,6 +61,8 @@ public class LlamaCore : ModuleRules
 			new string[]
 			{
 				"Core",
+                 "Json",             // <-- Aggiungi questo
+				 "JsonUtilities"     // <-- Aggiungi questo
 				// ... add other public dependencies that you statically link with here ...
 			}
 			);
@@ -110,11 +112,11 @@ public class LlamaCore : ModuleRules
 			string CudaPath;
 
 			//We default to vulkan build, turn this off if you want to build with CUDA/cpu only
-			bool bTryToUseVulkan = true;
+			bool bTryToUseVulkan = false ;
 			bool bVulkanGGMLFound = false;
 
 			//Toggle this off if you don't want to include the cuda backend	
-			bool bTryToUseCuda = false;
+			bool bTryToUseCuda = true;
 			bool bCudaGGMLFound = false;
 			bool bCudaFound = false;
 
@@ -128,9 +130,10 @@ public class LlamaCore : ModuleRules
 
 				if(bCudaGGMLFound)
 				{
-					//Almost every dev setup has a CUDA_PATH so try to load cuda in plugin path first;
-					//these won't exist unless you're in plugin 'cuda' branch.
-					CudaPath = Win64LibPath;
+                    System.Console.WriteLine("Llama-Unreal found ffml-cuda.lib");
+                    //Almost every dev setup has a CUDA_PATH so try to load cuda in plugin path first;
+                    //these won't exist unless you're in plugin 'cuda' branch.
+                    CudaPath = Win64LibPath;
 
 					//Test to see if we have a cuda.lib
 					bCudaFound = File.Exists(Path.Combine(Win64LibPath, "cuda.lib"));
@@ -153,8 +156,8 @@ public class LlamaCore : ModuleRules
 			string LlamaLibPath = Environment.GetEnvironmentVariable("LLAMA_PATH");
 			string LlamaDllPath = LlamaLibPath;
 			bool bUsingLlamaEnvPath = !string.IsNullOrEmpty(LlamaLibPath);
-
-			if (!bUsingLlamaEnvPath) 
+           
+            if (!bUsingLlamaEnvPath) 
 			{
 				LlamaLibPath = Win64LibPath;
 				LlamaDllPath = Path.Combine(LlamaCppBinariesPath, "Win64");
@@ -174,13 +177,7 @@ public class LlamaCore : ModuleRules
 
 			//System.Console.WriteLine("Llama-Unreal building using llama.lib at path " + LlamaLibPath);
 
-			if(bVulkanGGMLFound)
-			{
-				PublicAdditionalLibraries.Add(Path.Combine(Win64LibPath, "ggml-vulkan.lib"));
-				RuntimeDependencies.Add("$(BinaryOutputDir)/ggml-vulkan.dll", Path.Combine(LlamaDllPath, "ggml-vulkan.dll"));
-				//PublicDelayLoadDLLs.Add("ggml-vulkan.dll");
-				//System.Console.WriteLine("Llama-Unreal building using ggml-vulkan.lib at path " + Win64LibPath);
-			}
+			
 			if(bCudaGGMLFound)
 			{
 				PublicAdditionalLibraries.Add(Path.Combine(Win64LibPath, "ggml-cuda.lib"));
@@ -189,9 +186,17 @@ public class LlamaCore : ModuleRules
 				RuntimeDependencies.Add("$(BinaryOutputDir)/cublasLt64_12.dll", Path.Combine(LlamaDllPath, "cublasLt64_12.dll"));
 				RuntimeDependencies.Add("$(BinaryOutputDir)/cudart64_12.dll", Path.Combine(LlamaDllPath, "cudart64_12.dll"));
 				//PublicDelayLoadDLLs.Add("ggml-cuda.dll");
-				//System.Console.WriteLine("Llama-Unreal building using ggml-cuda.lib at path " + Win64LibPath);
+				System.Console.WriteLine("Llama-Unreal building using ggml-cuda.lib at path " + Win64LibPath);
 			}
-		}
+
+            if (bVulkanGGMLFound)
+            {
+                //PublicAdditionalLibraries.Add(Path.Combine(Win64LibPath, "ggml-vulkan.lib"));
+                //RuntimeDependencies.Add("$(BinaryOutputDir)/ggml-vulkan.dll", Path.Combine(LlamaDllPath, "ggml-vulkan.dll"));
+                //PublicDelayLoadDLLs.Add("ggml-vulkan.dll");
+                //System.Console.WriteLine("Llama-Unreal building using ggml-vulkan.lib at path " + Win64LibPath);
+            }
+        }
 		else if (Target.Platform == UnrealTargetPlatform.Mac)
 		{
 			//NB: Currently not working for b4879

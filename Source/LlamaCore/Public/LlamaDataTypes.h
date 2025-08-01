@@ -13,9 +13,22 @@ enum class EChatTemplateRole : uint8
     Unknown = 255
 };
 
+UENUM(BlueprintType)
+enum class ELLMResponseStatus : uint8
+{
+    Success       ,
+    ContextOversize   ,
+    RateLimitExceeded  ,
+	FailedToDecode,
+    ContentFiltered    ,
+    TimeoutError       ,
+    UnknownError 
+};
+
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnErrorSignature, const FString&, ErrorMessage, int32, ErrorCode);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnTokenGeneratedSignature, const FString&, Token);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnResponseGeneratedSignature, const FString&, Response);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnResponseGeneratedSignatureWithStatus, const FString&, Response, ELLMResponseStatus, Status);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FModelNameSignature, const FString&, ModelName);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPartialSignature, const FString&, Partial);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnPromptHistorySignature, FString, History);
@@ -23,7 +36,9 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnEndOfStreamSignature, bool, bSto
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnPromptProcessedSignature, int32, TokensProcessed, EChatTemplateRole, Role, float, TokensPerSecond);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FVoidEventSignature);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnEmbeddingsSignature, const TArray<float>&, Embeddings, const FString&, SourceText);
-
+//DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnRetrieveCompleted, const FString&, ResultText);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnSearchResultsReady, const FString&, TopResultsText);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnSearchResultComplete);
 USTRUCT(BlueprintType)
 struct FLlamaRunTimings
 {
@@ -363,4 +378,27 @@ public:
         , bGenerateReply(bInGenerateReply)
     {
     }
+};
+
+
+USTRUCT(BlueprintType)
+struct FFromJson
+{
+    GENERATED_USTRUCT_BODY();
+
+    UPROPERTY(BlueprintReadOnly, EditDefaultsOnly)
+    int id;
+    UPROPERTY(BlueprintReadOnly, EditDefaultsOnly)
+    FString text;
+    UPROPERTY(BlueprintReadOnly, EditDefaultsOnly)
+    FString type;
+    // Questa variabile può esistere o meno, proprio come un campo opzionale in JSON
+    UPROPERTY(BlueprintReadOnly, EditDefaultsOnly)
+    FString Path;
+    UPROPERTY(BlueprintReadOnly, EditDefaultsOnly)
+    TArray<float> Embedding;
+    UPROPERTY(BlueprintReadOnly, EditDefaultsOnly)
+    FString InfoAggiuntiva;
+    UPROPERTY(BlueprintReadOnly, EditDefaultsOnly)
+    float Similitarity = 0;
 };

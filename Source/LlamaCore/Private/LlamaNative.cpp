@@ -12,6 +12,21 @@ FLlamaNative::FLlamaNative()
     Internal = new FLlamaInternal();
 
     //Hookup internal listeners - these get called on BG thread
+	Internal->ErrorFound = [this](const FString& ErrorMessage)
+
+		{
+			UE_LOG(LlamaLog, Error, TEXT("An error was found in the llama internal processing! This is a critical error!"));
+			//Emit error to game thread
+            OnResponseGeneratedWithStatus(*ErrorMessage, Internal->ResponseStatus);
+			/*EnqueueGTTask([this, ErrorMessage, ErrorCode]()
+				{
+					if (OnError)
+					{
+						OnError(ErrorMessage, ErrorCode);
+					}
+				});*/
+		};
+
     Internal->OnTokenGenerated = [this](const std::string& TokenPiece)
     {
         const FString Token = FLlamaString::ToUE(TokenPiece);
@@ -81,8 +96,16 @@ FLlamaNative::FLlamaNative()
         {
             if (OnResponseGenerated)
             {
+				UE_LOG(LlamaLog, Log, TEXT("Response generated: %s"), *ResponseString);
                 OnResponseGenerated(ResponseString);
+				OnResponseGeneratedWithStatus(ResponseString, ELLMResponseStatus::Success);
             }
+            else 
+			{
+				UE_LOG(LlamaLog, Warning, TEXT("OnResponseGenerated is not bound, response will not be emitted!"));
+                OnResponseGeneratedWithStatus("Errore", ELLMResponseStatus::UnknownError);
+			}
+
         });
     };
 
@@ -114,6 +137,7 @@ FLlamaNative::FLlamaNative()
 
     Internal->OnError = [this](const FString& ErrorMessage, int32 ErrorCode)
     {
+        OnResponseGeneratedWithStatus(ErrorMessage, Internal->ResponseStatus);
         const FString ErrorMessageGTSafe = ErrorMessage;
         EnqueueGTTask([this, ErrorMessageGTSafe, ErrorCode]
         {
@@ -139,6 +163,17 @@ FLlamaNative::~FLlamaNative()
         FPlatformProcess::Sleep(0.01f);
     }
     delete Internal;
+}
+
+void FLlamaNative::SetPooling(int NewPoolingMode,int NewPoolingType)
+{
+    Internal->SetPoolingMode(NewPoolingMode, NewPoolingType);
+}
+
+FString FLlamaNative::RetriveFromEmbedding(const FString& Text)
+{
+    return Internal->RetriveFromEmbedding(Text);
+
 }
 
 void FLlamaNative::SyncModelStateToInternal(TFunction<void()> AdditionalGTStateUpdates)
@@ -257,6 +292,31 @@ void FLlamaNative::EnqueueGTTask(TFunction<void()> TaskFunction, int64 LinkedTas
     };
 
     GameThreadTasks.Enqueue(Task);
+}
+
+FString FLlamaNative::RetriveFromJson(const FString& Text, const FString& Json,int NChuncksOut)
+{
+    return Internal->RetriveFromJson(Text,Json, NChuncksOut);
+}
+
+void FLlamaNative::BuildAndSaveIndexFromChunks(const TArray<FString>& TextChunks, const FString& IndexSavePath, const FString& MapSavePath)
+{
+    Internal->BuildAndSaveIndexFromChunks(TextChunks, IndexSavePath, MapSavePath);
+}
+
+FString FLlamaNative::FindNearestString(FString Query)
+{
+    return Internal->FindNearestString(Query);
+}
+
+bool FLlamaNative::CheckContext()
+{
+    return Internal->CheckContext();
+}
+
+void FLlamaNative::ConvertJson(const FString& Input, const FString& Output)
+{
+    Internal->FromJsonToEmbeddingsJson(Input,Output);
 }
 
 void FLlamaNative::SetModelParams(const FLLMModelParams& Params)
@@ -388,8 +448,10 @@ void FLlamaNative::InsertTemplatedPrompt(const FLlamaChatPrompt& Prompt, TFuncti
         
         if (ThreadSafePrompt.bGenerateReply)
         {
-            FString Response = FLlamaString::ToUE(Internal->InsertTemplatedPrompt(UserStdString, ThreadSafePrompt.Role, ThreadSafePrompt.bAddAssistantBOS, true));
+            UE_LOG(LlamaLog, Warning, TEXT("before response ."));
 
+            FString Response = FLlamaString::ToUE(Internal->InsertTemplatedPrompt(UserStdString, ThreadSafePrompt.Role, ThreadSafePrompt.bAddAssistantBOS, true));
+            UE_LOG(LlamaLog, Warning, TEXT("after response "));
             //NB: OnResponseGenerated will also be called separately from this
             EnqueueGTTask([this, Response, OnResponseFinished]()
             {
@@ -403,12 +465,15 @@ void FLlamaNative::InsertTemplatedPrompt(const FLlamaChatPrompt& Prompt, TFuncti
         {
             //We don't want to generate a reply, just append a prompt. (last param = false turns it off)
             Internal->InsertTemplatedPrompt(UserStdString, ThreadSafePrompt.Role, ThreadSafePrompt.bAddAssistantBOS, false);
+            UE_LOG(LlamaLog, Warning, TEXT("not generated response in native"));
         }
     });
+    UE_LOG(LlamaLog, Warning, TEXT("close insert tempalte prompt in nativw"));
 }
 
 void FLlamaNative::InsertRawPrompt(const FString& Prompt, bool bGenerateReply, TFunction<void(const FString& Response)>OnResponseFinished)
 {
+    UE_LOG(LlamaLog, Warning, TEXT("primitive insert raw ."));
     if (!IsModelLoaded() && !bModelLoadInitiated)
     {
         UE_LOG(LlamaLog, Warning, TEXT("Model isn't loaded, can't run prompt."));
@@ -418,7 +483,7 @@ void FLlamaNative::InsertRawPrompt(const FString& Prompt, bool bGenerateReply, T
     const std::string PromptStdString = FLlamaString::ToStd(Prompt);
 
     EnqueueBGTask([this, PromptStdString, OnResponseFinished, bGenerateReply](int64 TaskId)
-    {
+    { UE_LOG(LlamaLog, Warning, TEXT("primitive before response  ."));
         FString Response = FLlamaString::ToUE(Internal->InsertRawPrompt(PromptStdString, bGenerateReply));
         EnqueueGTTask([this, Response, OnResponseFinished]
         {
@@ -427,7 +492,8 @@ void FLlamaNative::InsertRawPrompt(const FString& Prompt, bool bGenerateReply, T
                 OnResponseFinished(Response);
             }
         });
-    });
+        UE_LOG(LlamaLog, Warning, TEXT("primitive after response  ."));
+        });
 }
 
 void FLlamaNative::ImpersonateTemplatedPrompt(const FLlamaChatPrompt& Prompt)
@@ -777,11 +843,12 @@ FString FLlamaNative::WrapPromptForRole(const FString& Text, EChatTemplateRole R
 void FLlamaNative::GetPromptEmbeddings(const FString& Text, TFunction<void(const TArray<float>& Embeddings, const FString& SourceText)> OnEmbeddings)
 {
     const FString SourceText = Text;    //copy to safely traverse threads
-
+    UE_LOG(LogTemp, Warning, TEXT("GetPromptEmbeddings"));
     EnqueueBGTask([this, SourceText, OnEmbeddings](int64 TaskId)
     {
         std::string TextStd = FLlamaString::ToStd(SourceText);
         std::vector<float> EmbeddingVector;
+      
         Internal->GetPromptEmbeddings(TextStd, EmbeddingVector);
 
         TArray<float> Embeddings;
